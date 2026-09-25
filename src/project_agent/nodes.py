@@ -1,10 +1,7 @@
 from langgraph.types import Send
 from langgraph.runtime import Runtime
 from langgraph.types import Command
-
 from .state import *
-from .model import *
-
 
 def planner(state:OverallState):
     planner_model = model.with_structured_output(PlannerOutput)
@@ -112,47 +109,82 @@ def Scheduler(state:OverallState):
     )
 
 def worker(state:WorkerState):
+    from .graph import (
+        build_research_graph,
+        build_code_graph,
+        build_write_graph,
+    )
     if state["agent"] == "research":
+        research_input = {
+            "query":state["instruction"],
+            "draft":"",
+            "retry_count":0,
+            "advice":"",
+            "research_result":"",
+            "dependency_results":state["dependency_results"]
+        }
+        research_graph = build_research_graph()
+        result = research_graph.invoke(research_input)["research_result"]
 
-        specialist_result = researcher({
-            "query":
-                state["instruction"],
-
-            "dependency_results":
-                state["dependency_results"],
-
-            "research_result":
-                "",
-        })
-        result = specialist_result["research_result"]
+        # specialist_result = researcher({
+        #     "query":
+        #         state["instruction"],
+        #
+        #     "dependency_results":
+        #         state["dependency_results"],
+        #
+        #     "research_result":
+        #         "",
+        # })
+        # result = specialist_result["research_result"]
 
     elif state["agent"] == "coder":
+        research_input = {
+            "query": state["instruction"],
+            "draft": "",
+            "retry_count": 0,
+            "advice": "",
+            "code_result": "",
+            "dependency_results": state["dependency_results"]
+        }
+        code_graph = build_code_graph()
+        result = code_graph.invoke(research_input)["code_result"]
 
-        specialist_result = coder({
-            "query":
-                state["instruction"],
-
-            "dependency_results":
-                state["dependency_results"],
-
-            "code_result":
-                "",
-        })
-        result = specialist_result["code_result"]
+        # specialist_result = coder({
+        #     "query":
+        #         state["instruction"],
+        #
+        #     "dependency_results":
+        #         state["dependency_results"],
+        #
+        #     "code_result":
+        #         "",
+        # })
+        # result = specialist_result["code_result"]
 
     elif state["agent"] == "writer":
+        research_input = {
+            "query": state["instruction"],
+            "draft": "",
+            "retry_count": 0,
+            "advice": "",
+            "write_result": "",
+            "dependency_results": state["dependency_results"]
+        }
+        write_graph = build_write_graph()
+        result = write_graph.invoke(research_input)["write_result"]
 
-        specialist_result = writer({
-            "query":
-                state["instruction"],
-
-            "dependency_results":
-                state["dependency_results"],
-
-            "write_result":
-                "",
-        })
-        result = specialist_result["write_result"]
+        # specialist_result = writer({
+        #     "query":
+        #         state["instruction"],
+        #
+        #     "dependency_results":
+        #         state["dependency_results"],
+        #
+        #     "write_result":
+        #         "",
+        # })
+        # result = specialist_result["write_result"]
 
     else:
         raise ValueError(
@@ -164,6 +196,8 @@ def worker(state:WorkerState):
             {
                 "work_id":
                     state["work_id"],
+
+                "agent":state["agent"],
 
                 "result":
                     result,
@@ -199,11 +233,37 @@ def researcher(state:ResearchState):
     input = f"""
         根据用户需求：{state["query"]}
         完成research工作。
+        
         参考资料如下：
         {state["dependency_results"]}
+        参考修改意见如下：
+        {state["advice"]}
     """
     response = researcher_model.invoke(input)
-    return {"research_result":response.result}
+    return {"draft":response.result}
+
+def research_reviewer(state:ResearchState):
+    review_model = model.with_structured_output(ResearchReviewOutput)
+    review_input = f"""
+        根据用户需求{state["query"]}
+        判断收集的资料{state["draft"]}
+        是否符合要求
+        
+        如果不符合，给出修改意见：
+        {state["advice"]}
+    """
+
+    review_response = review_model.invoke(review_input)
+
+    try_count = state.get("retry_count", 0)
+
+    if (not review_response.passed) and try_count < 3:
+        return Command(
+            update={"advice":review_response.advice,
+                    "retry_count":try_count+1},
+            goto="researcher"
+        )
+    return {"research_result":state["draft"]}
 # Coder===============================================================
 def coder(state:CodingState):
     coding_model = model.with_structured_output(CodingOutput)
@@ -212,10 +272,36 @@ def coder(state:CodingState):
             完成coding工作。
             参考资料如下：
             {state["dependency_results"]}
+            参考修改意见如下：
+            {state["advice"]}
         """
     response = coding_model.invoke(input)
 
-    return {"code_result":response.result}
+    return {"draft":response.result}
+
+
+def coding_reviewer(state: CodingState):
+    review_model = model.with_structured_output(CodingReviewOutput)
+    review_input = f"""
+        根据用户需求{state["query"]}
+        判断给出的代码{state["draft"]}
+        是否符合要求
+
+        如果不符合，给出修改意见：
+        {state["advice"]}
+    """
+
+    review_response = review_model.invoke(review_input)
+
+    try_count = state.get("retry_count", 0)
+
+    if (not review_response.passed) and try_count < 3:
+        return Command(
+            update={"advice": review_response.advice,
+                    "retry_count": try_count + 1},
+            goto="coder"
+        )
+    return {"code_result": state["draft"]}
 # Writer==============================================================
 def writer(state:WriteState):
     writing_model = model.with_structured_output(WriterOutput)
@@ -224,7 +310,33 @@ def writer(state:WriteState):
             完成write工作。
             参考资料如下：
             {state["dependency_results"]}
+            参考修改意见如下：
+            {state["advice"]}
         """
     response = writing_model.invoke(input)
 
-    return {"write_result":response.result}
+    return {"draft":response.result}
+
+
+def write_reviewer(state: WriteState):
+    review_model = model.with_structured_output(WriteReviewOutput)
+    review_input = f"""
+        根据用户需求{state["query"]}
+        判断生成的回答{state["draft"]}
+        是否符合要求
+
+        如果不符合，给出修改意见：
+        {state["advice"]}
+    """
+
+    review_response = review_model.invoke(review_input)
+
+    try_count = state.get("retry_count", 0)
+
+    if (not review_response.passed) and try_count < 3:
+        return Command(
+            update={"advice": review_response.advice,
+                    "retry_count": try_count + 1},
+            goto="writer"
+        )
+    return {"write_result": state["draft"]}

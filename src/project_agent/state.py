@@ -3,6 +3,9 @@ from pydantic import BaseModel, Field
 from typing import Annotated
 from typing_extensions import TypedDict
 from typing import Literal
+from .model import *
+
+
 
 class TaskSpec(BaseModel):
 
@@ -24,10 +27,14 @@ class TaskSpec(BaseModel):
     )
 )
 
+class PlannerOutput(BaseModel):
+    tasks: list[TaskSpec]
 
 class TaskResult(TypedDict):
 
     work_id: str
+
+    agent:str
 
     result: str
 
@@ -66,9 +73,20 @@ class OverallState(TypedDict):
 class ResearchOutput(BaseModel):
     result:str
 
+class ResearchReviewOutput(BaseModel):
+    passed:bool=Field(description="内容是否符合用户要求")
+
+    advice:str=Field(description="如果不通过，有什么修改意见。")
+
 class ResearchState(TypedDict):
 
     query:str
+
+    draft:str
+
+    retry_count:int
+
+    advice:str
 
     research_result:str
 
@@ -80,9 +98,20 @@ class ResearchState(TypedDict):
 class CodingOutput(BaseModel):
     result: str
 
+class CodingReviewOutput(BaseModel):
+    passed:bool=Field(description="内容是否符合用户要求")
+
+    advice:str=Field(description="如果不通过，有什么修改意见。")
+
 class CodingState(TypedDict):
 
     query:str
+
+    draft: str
+
+    retry_count: int
+
+    advice: str
 
     code_result:str
 
@@ -94,9 +123,20 @@ class CodingState(TypedDict):
 class WriterOutput(BaseModel):
     result:str
 
+class WriteReviewOutput(BaseModel):
+    passed:bool=Field(description="内容是否符合用户要求")
+
+    advice:str=Field(description="如果不通过，有什么修改意见。")
+
 class WriteState(TypedDict):
 
     query:str
+
+    draft: str
+
+    retry_count: int
+
+    advice: str
 
     write_result:str
 

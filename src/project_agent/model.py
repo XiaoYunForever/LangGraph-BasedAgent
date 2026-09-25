@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 import os
 import dotenv
 
-from .state import TaskSpec
+
 
 dotenv.load_dotenv()
 
@@ -22,7 +22,4 @@ model = init_chat_model(
     api_key=os.getenv("QWEN_API_KEY"),
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
-
-class PlannerOutput(BaseModel):
-    tasks: list[TaskSpec]
 

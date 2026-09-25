@@ -114,7 +114,7 @@ def Scheduler(state:OverallState):
 def worker(state:WorkerState):
     if state["agent"] == "research":
 
-        result = researcher({
+        specialist_result = researcher({
             "query":
                 state["instruction"],
 
@@ -124,10 +124,11 @@ def worker(state:WorkerState):
             "research_result":
                 "",
         })
+        result = specialist_result["research_result"]
 
     elif state["agent"] == "coder":
 
-        result = coder({
+        specialist_result = coder({
             "query":
                 state["instruction"],
 
@@ -137,10 +138,11 @@ def worker(state:WorkerState):
             "code_result":
                 "",
         })
+        result = specialist_result["code_result"]
 
     elif state["agent"] == "writer":
 
-        result = writer({
+        specialist_result = writer({
             "query":
                 state["instruction"],
 
@@ -150,6 +152,7 @@ def worker(state:WorkerState):
             "write_result":
                 "",
         })
+        result = specialist_result["write_result"]
 
     else:
         raise ValueError(

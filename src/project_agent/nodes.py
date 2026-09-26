@@ -75,25 +75,54 @@ def Scheduler(state:OverallState):
             if result["work_id"]
                in task.depends_on
         }
+        if task.agent == "research":
+            sends.append(
+                Send(
+                    "researcher",
+                    {
+                        "work_id":
+                            task.work_id,
 
-        sends.append(
-            Send(
-                "worker",
-                {
-                    "work_id":
-                        task.work_id,
+                        "query":
+                            task.instruction,
 
-                    "agent":
-                        task.agent,
-
-                    "instruction":
-                        task.instruction,
-
-                    "dependency_results":
-                        dependency_results,
-                }
+                        "dependency_results":
+                            dependency_results,
+                    }
+                )
             )
-        )
+        elif task.agent == "coder":
+            sends.append(
+                Send(
+                    "coder",
+                    {
+                        "work_id":
+                            task.work_id,
+
+                        "query":
+                            task.instruction,
+
+                        "dependency_results":
+                            dependency_results,
+                    }
+                )
+            )
+        else:
+            sends.append(
+                Send(
+                    "writer",
+                    {
+                        "work_id":
+                            task.work_id,
+
+                        "query":
+                            task.instruction,
+
+                        "dependency_results":
+                            dependency_results,
+                    }
+                )
+            )
 
     next_wave = (
             state.get("wave", 0)
@@ -230,6 +259,7 @@ def aggregate(state:OverallState):
 # Researcher==========================================================
 def researcher(state:ResearchState):
     researcher_model = model.with_structured_output(ResearchOutput)
+    advice = state.get("advice","")
     input = f"""
         根据用户需求：{state["query"]}
         完成research工作。
@@ -237,7 +267,7 @@ def researcher(state:ResearchState):
         参考资料如下：
         {state["dependency_results"]}
         参考修改意见如下：
-        {state["advice"]}
+        {advice}
     """
     response = researcher_model.invoke(input)
     return {"draft":response.result}
@@ -250,7 +280,6 @@ def research_reviewer(state:ResearchState):
         是否符合要求
         
         如果不符合，给出修改意见：
-        {state["advice"]}
     """
 
     review_response = review_model.invoke(review_input)
@@ -263,17 +292,30 @@ def research_reviewer(state:ResearchState):
                     "retry_count":try_count+1},
             goto="researcher"
         )
-    return {"research_result":state["draft"]}
+    return Command(
+        update={"final_result":state["draft"]},
+        goto="research_afterprocess"
+    )
+
+def research_afterprocess(state: WriteState|ResearchState|CodingState):
+
+    return {"task_results": [{"result":state["final_result"],
+                             "work_id":state["work_id"],
+                             "agent":"research"
+                             }]
+            }
+
 # Coder===============================================================
 def coder(state:CodingState):
     coding_model = model.with_structured_output(CodingOutput)
+    advice = state.get("advice", "")
     input = f"""
             根据用户需求：{state["query"]}
             完成coding工作。
             参考资料如下：
             {state["dependency_results"]}
             参考修改意见如下：
-            {state["advice"]}
+            {advice}
         """
     response = coding_model.invoke(input)
 
@@ -288,7 +330,6 @@ def coding_reviewer(state: CodingState):
         是否符合要求
 
         如果不符合，给出修改意见：
-        {state["advice"]}
     """
 
     review_response = review_model.invoke(review_input)
@@ -301,17 +342,29 @@ def coding_reviewer(state: CodingState):
                     "retry_count": try_count + 1},
             goto="coder"
         )
-    return {"code_result": state["draft"]}
+    return Command(
+        update={"final_result":state["draft"]},
+        goto="code_afterprocess"
+    )
+
+def code_afterprocess(state: WriteState|ResearchState|CodingState):
+
+    return {"task_results": [{"result":state["final_result"],
+                             "work_id":state["work_id"],
+                             "agent":"coderr"
+                             }]
+            }
 # Writer==============================================================
 def writer(state:WriteState):
     writing_model = model.with_structured_output(WriterOutput)
+    advice = state.get("advice", "")
     input = f"""
             根据用户需求：{state["query"]}
             完成write工作。
             参考资料如下：
             {state["dependency_results"]}
             参考修改意见如下：
-            {state["advice"]}
+            {advice}
         """
     response = writing_model.invoke(input)
 
@@ -326,7 +379,6 @@ def write_reviewer(state: WriteState):
         是否符合要求
 
         如果不符合，给出修改意见：
-        {state["advice"]}
     """
 
     review_response = review_model.invoke(review_input)
@@ -339,4 +391,16 @@ def write_reviewer(state: WriteState):
                     "retry_count": try_count + 1},
             goto="writer"
         )
-    return {"write_result": state["draft"]}
+    return Command(
+        update={"final_result":state["draft"]},
+        goto="write_afterprocess"
+    )
+
+def write_afterprocess(state: WriteState|ResearchState|CodingState):
+
+    return {"task_results": [{"result":state["final_result"],
+                             "work_id":state["work_id"],
+                             "agent":"writer"
+                             }]
+            }
+# ========================================================

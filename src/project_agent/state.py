@@ -88,11 +88,16 @@ class ResearchState(TypedDict):
 
     advice:str
 
-    research_result:str
+    final_result:str
 
     dependency_results: dict[str, str]
 
+    work_id:str
 
+    task_results: Annotated[
+        list[TaskResult],
+        operator.add
+    ]
 
 # Coder===============================================================
 class CodingOutput(BaseModel):
@@ -113,11 +118,16 @@ class CodingState(TypedDict):
 
     advice: str
 
-    code_result:str
+    final_result:str
 
     dependency_results: dict[str, str]
 
+    work_id: str
 
+    task_results: Annotated[
+        list[TaskResult],
+        operator.add
+    ]
 
 # Writer==============================================================
 class WriterOutput(BaseModel):
@@ -138,6 +148,25 @@ class WriteState(TypedDict):
 
     advice: str
 
-    write_result:str
+    final_result:str
 
     dependency_results: dict[str, str]
+
+    work_id: str
+
+    task_results: Annotated[
+        list[TaskResult],
+        operator.add
+    ]
+
+# ===========================================
+class SubAgentInput(TypedDict):
+    work_id: str
+    query: str
+    dependency_results: dict[str, str]
+
+class SubAgentOutput(TypedDict):
+    task_results: Annotated[
+        list[TaskResult],
+        operator.add
+    ]

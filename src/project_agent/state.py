@@ -7,7 +7,7 @@ from .model import *
 
 
 
-class TaskSpec(BaseModel):
+class TaskSpec(TypedDict):
 
     work_id: str
 
@@ -19,13 +19,7 @@ class TaskSpec(BaseModel):
 
     instruction: str
 
-    depends_on: list[str] = Field(
-    default_factory=list,
-    description=(
-        "当前任务依赖的其他work_id。"
-        "无依赖时返回空列表。"
-    )
-)
+    depends_on: list[str]
 
 class PlannerOutput(BaseModel):
     tasks: list[TaskSpec]

@@ -1,9 +1,17 @@
-from pprint import pprint
+from langgraph.checkpoint.sqlite import SqliteSaver
+
 from project_agent import build_graph
+from project_agent.history import get_history
+
 
 def main():
-    graph = build_graph()
-    config = {"configurable": {"thread_id": "demo"}}
+
+    config = {
+        "configurable": {
+            "thread_id": "demo-001"
+        }
+    }
+
     initial_state = {
         "goal": "帮我简短介绍并写一个Python冒泡排序",
         "tasks": [],
@@ -13,34 +21,39 @@ def main():
         "error": "",
     }
 
-    print("=" * 60)
-    print("STREAM UPDATES")
-    print("=" * 60)
-    for chunk in graph.stream(
-        initial_state,
-        config=config,
-        stream_mode="updates",
-    ):
-        pprint(chunk)
+    with SqliteSaver.from_conn_string(
+        "checkpoints.sqlite"
+    ) as checkpointer:
 
-    snapshot = graph.get_state(config)
-    print("\nLATEST STATE")
-    pprint(snapshot.values)
-    print("next =", snapshot.next)
-    print("tasks =", snapshot.tasks)
-
-    print("\nCHECKPOINT HISTORY (newest first)")
-    for i, item in enumerate(graph.get_state_history(config), start=1):
-        checkpoint_id = item.config.get("configurable", {}).get("checkpoint_id")
-        completed = [
-            x["work_id"]
-            for x in item.values.get("task_results", [])
-        ]
-        print(
-            f"#{i} checkpoint_id={checkpoint_id} "
-            f"next={item.next} wave={item.values.get('wave')} "
-            f"completed={completed}"
+        graph = build_graph(
+            checkpointer
         )
+
+        for chunk in graph.stream(
+            initial_state,
+            config=config,
+            stream_mode="tasks",
+        ):
+            print(chunk)
+
+        print("\nCHECKPOINT HISTORY")
+
+        history = get_history(
+            graph,
+            config
+        )
+
+        for snapshot in history:
+
+            print(
+                snapshot.config[
+                    "configurable"
+                ][
+                    "checkpoint_id"
+                ],
+                snapshot.next
+            )
+
 
 if __name__ == "__main__":
     main()

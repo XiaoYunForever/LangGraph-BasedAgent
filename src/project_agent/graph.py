@@ -4,27 +4,29 @@ from langgraph.checkpoint.memory import InMemorySaver
 from .nodes import *
 
 
-def build_graph():
+def build_graph(checkpointer):
     parent_builder = StateGraph(OverallState)
 
     parent_builder.add_node("planner",planner)
-    # parent_builder.add_node("worker",worker)
+    parent_builder.add_node("plan_validator",plan_validator)
     parent_builder.add_node("Scheduler",Scheduler)
     parent_builder.add_node("aggregate",aggregate)
     parent_builder.add_node("dependency_error",dependency_error)
+
     parent_builder.add_node("researcher",build_research_graph())
     parent_builder.add_node("coder", build_code_graph())
     parent_builder.add_node("writer", build_write_graph())
 
     parent_builder.add_edge(START,"planner")
-    parent_builder.add_edge("planner","Scheduler")
+    parent_builder.add_edge("planner","plan_validator")
+
     parent_builder.add_edge("researcher","Scheduler")
     parent_builder.add_edge("coder", "Scheduler")
     parent_builder.add_edge("writer", "Scheduler")
     parent_builder.add_edge("aggregate",END)
     parent_builder.add_edge("dependency_error",END)
 
-    parent_graph = parent_builder.compile(checkpointer=InMemorySaver())
+    parent_graph = parent_builder.compile(checkpointer=checkpointer)
     return parent_graph
 
 def build_research_graph():

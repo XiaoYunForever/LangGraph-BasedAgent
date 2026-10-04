@@ -1,8 +1,7 @@
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from project_agent import build_graph
-from project_agent.history import get_history, find_checkpoint, inspect_checkpoint, inspect_versions, \
-    inspect_trigger_values
+from project_agent.history import get_history, find_checkpoint, inspect_checkpoint, inspect_versions
 
 
 def main():

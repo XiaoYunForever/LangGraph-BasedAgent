@@ -1,5 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
+from project_agent.human_check import make_result_human_check
 
 from .nodes import *
 
@@ -9,6 +10,7 @@ def build_graph(checkpointer):
 
     parent_builder.add_node("planner",planner)
     parent_builder.add_node("plan_validator",plan_validator)
+    parent_builder.add_node("human_review",human_review)
     parent_builder.add_node("Scheduler",Scheduler)
     parent_builder.add_node("aggregate",aggregate)
     parent_builder.add_node("dependency_error",dependency_error)
@@ -19,7 +21,6 @@ def build_graph(checkpointer):
 
     parent_builder.add_edge(START,"planner")
     parent_builder.add_edge("planner","plan_validator")
-
     parent_builder.add_edge("researcher","Scheduler")
     parent_builder.add_edge("coder", "Scheduler")
     parent_builder.add_edge("writer", "Scheduler")
@@ -37,6 +38,14 @@ def build_research_graph():
     research_builder.add_node("researcher",researcher)
     research_builder.add_node("research_reviewer",research_reviewer)
     research_builder.add_node("research_afterprocess", research_afterprocess)
+    research_builder.add_node(
+        "research_human_check",
+        make_result_human_check(
+            agent="research",
+            human_node="research_human_check",
+            afterprocess_node="research_afterprocess",
+        )
+    )
 
     research_builder.add_edge(START,"researcher")
     research_builder.add_edge("researcher","research_reviewer")
@@ -55,6 +64,14 @@ def build_code_graph():
     code_builder.add_node("coder", coder)
     code_builder.add_node("coding_reviewer", coding_reviewer)
     code_builder.add_node("code_afterprocess", code_afterprocess)
+    code_builder.add_node(
+        "coding_human_check",
+        make_result_human_check(
+            agent="coder",
+            human_node="coding_human_check",
+            afterprocess_node="code_afterprocess",
+        )
+    )
 
     code_builder.add_edge(START, "coder")
     code_builder.add_edge("coder","coding_reviewer")

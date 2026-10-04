@@ -2,6 +2,8 @@ from langgraph.types import Send
 # from langgraph.runtime import Runtime
 # from langgraph.types import Command
 from .state import *
+from langgraph.graph import END
+from langgraph.types import Command, interrupt
 
 def planner(state:OverallState):
     planner_model = model.with_structured_output(PlannerOutput)
@@ -43,7 +45,7 @@ def planner(state:OverallState):
         write_1
         等形式。
         
-        5. depends_on 中只能出现本次计划中真实存在的 work_id。
+        5. depends_on 中必须只能出现本次计划中真实存在的 work_id 字符串，要一模一样，且禁止添加其他任何字符。
         
         6. 禁止：
         - 依赖不存在的 work_id
@@ -236,18 +238,28 @@ def validate_plan(tasks: list[TaskSpec]) -> list[str]:
 
     return errors
 
-def plan_validator(state: OverallState):
+def plan_validator(
+    state: OverallState
+) -> Command[Literal["human_review", "dependency_error"]]:
 
-    errors = validate_plan(
-        state["tasks"]
-    )
-
-    # ============================================================
-    # 非法计划
-    # ============================================================
+    errors = validate_plan(state["tasks"])
 
     if errors:
 
+        # 人工编辑的计划不合法：
+        # 重新交给人工修改，而不是结束任务。
+        if state.get("plan_origin", "planner") == "human":
+
+            return Command(
+                update={
+                    "validation_errors": errors,
+                    "approval_status": "pending"
+                },
+                goto="human_review"
+            )
+
+        # Planner 初次生成非法 DAG：
+        # 保留 v0.4a 的失败终止逻辑。
         error_message = (
             "Planner 生成的任务计划不合法：\n- "
             + "\n- ".join(errors)
@@ -255,23 +267,155 @@ def plan_validator(state: OverallState):
 
         return Command(
             update={
-                "error": error_message
+                "error": error_message,
+                "validation_errors": errors
             },
             goto="dependency_error"
         )
 
-
-    # ============================================================
-    # 合法计划
-    # ============================================================
-
+    # 校验成功
     return Command(
         update={
-            "error": ""
+            "error": "",
+            "validation_errors": [],
+            "approval_status": "pending"
         },
-        goto="Scheduler"
+        goto="human_review"
     )
 
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from langgraph.graph import END
+from langgraph.types import Command, interrupt
+
+
+# 人工提交的任务结构
+class EditableTask(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    work_id: str = Field(min_length=1)
+    agent: Literal["research", "coder", "writer"]
+    instruction: str = Field(min_length=1)
+    depends_on: list[str]
+
+
+def human_review(state: OverallState):
+
+    # 第一次执行会在这里暂停。
+    # Resume 后，此处获得人工输入。
+    decision = interrupt({
+        "type": "plan_review",
+        "goal": state["goal"],
+        "tasks": state["tasks"],
+        "validation_errors": state.get(
+            "validation_errors", []
+        ),
+        "options": ["approve", "reject", "edit"]
+    })
+
+    # 处理非法响应
+    if not isinstance(decision, dict):
+        return Command(
+            update={
+                "validation_errors": [
+                    "人工响应必须是字典。"
+                ]
+            },
+            goto="human_review"
+        )
+
+    action = decision.get("action")
+
+    # ==========================================
+    # 1. Approve
+    # ==========================================
+    if action == "approve":
+
+        # 防止带着校验错误直接批准
+        if state.get("validation_errors"):
+            return Command(
+                update={
+                    "approval_status": "pending"
+                },
+                goto="human_review"
+            )
+
+        return Command(
+            update={
+                "approval_status": "approved"
+            },
+            goto="Scheduler"
+        )
+
+    # ==========================================
+    # 2. Reject
+    # ==========================================
+    if action == "reject":
+
+        return Command(
+            update={
+                "approval_status": "rejected",
+                "final_answer": "任务计划已被人工拒绝。"
+            },
+            goto=END
+        )
+
+    # ==========================================
+    # 3. Edit
+    # ==========================================
+    if action == "edit":
+
+        raw_tasks = decision.get("tasks")
+
+        # 先检查输入结构是否合法
+        try:
+            if not isinstance(raw_tasks, list) or not raw_tasks:
+                raise ValueError(
+                    "tasks 必须是非空任务列表"
+                )
+
+            edited_tasks = [
+                EditableTask.model_validate(task).model_dump()
+                for task in raw_tasks
+            ]
+
+        except (ValidationError, ValueError, TypeError) as exc:
+
+            return Command(
+                update={
+                    "validation_errors": [
+                        f"修改后的任务结构不合法：{exc}"
+                    ],
+                    "approval_status": "pending"
+                },
+                goto="human_review"
+            )
+
+        # 不在这里检查 DAG 环或依赖合法性
+        # 统一交给 Plan Validator 负责
+
+        return Command(
+            update={
+                "tasks": edited_tasks,
+                "plan_origin": "human",
+                "validation_errors": [],
+                "approval_status": "pending"
+            },
+            goto="plan_validator"
+        )
+
+    # ==========================================
+    # 4. Unknown action
+    # ==========================================
+    return Command(
+        update={
+            "validation_errors": [
+                f"不支持的审批操作：{action}"
+            ]
+        },
+        goto="human_review"
+    )
 
 def Scheduler(state:OverallState):
     all_finished_tasks = {
@@ -577,7 +721,7 @@ def research_reviewer(state:ResearchState):
         )
     return Command(
         update={"final_result":state["draft"]},
-        goto="research_afterprocess"
+        goto="research_human_check"
     )
 
 def research_afterprocess(state: WriteState|ResearchState|CodingState):
@@ -694,7 +838,7 @@ def coding_reviewer(state: CodingState):
         )
     return Command(
         update={"final_result":state["draft"]},
-        goto="code_afterprocess"
+        goto="coding_human_check"
     )
 
 def code_afterprocess(state: WriteState|ResearchState|CodingState):

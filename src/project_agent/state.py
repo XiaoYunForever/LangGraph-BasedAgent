@@ -1,6 +1,7 @@
 import operator
 from pydantic import BaseModel, Field
 from typing import Annotated
+from typing_extensions import NotRequired
 from typing_extensions import TypedDict
 from typing import Literal
 from .model import *
@@ -61,6 +62,17 @@ class OverallState(TypedDict):
 
     error: str
 
+    approval_status: NotRequired[
+        Literal["pending", "approved", "rejected"]
+    ]
+
+    # 区分计划来源
+    plan_origin: NotRequired[
+        Literal["planner", "human"]
+    ]
+
+    # 保存校验错误，供下一次人工编辑使用
+    validation_errors: NotRequired[list[str]]
 
 
 # Researcher==========================================================

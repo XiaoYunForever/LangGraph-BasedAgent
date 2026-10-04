@@ -119,3 +119,73 @@ def inspect_versions(
                 f"  {channel:<38} "
                 f"{version}"
             )
+
+def inspect_nested_interrupts(graph, config):
+
+    root_snapshot = graph.get_state(
+        config,
+        subgraphs=True
+    )
+
+    interrupt_map = {}
+
+    def walk(snapshot, depth=0):
+
+        prefix = "  " * depth
+
+        namespace = snapshot.config.get(
+            "configurable", {}
+        ).get("checkpoint_ns", "")
+
+        print(
+            prefix,
+            "NAMESPACE:",
+            namespace
+        )
+
+        print(
+            prefix,
+            "NEXT:",
+            snapshot.next
+        )
+
+        for task in snapshot.tasks:
+
+            print(
+                prefix,
+                "TASK:",
+                task.name,
+                task.id
+            )
+
+            # 记录 Interrupt
+            for item in task.interrupts:
+
+                payload = item.value
+
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("type")
+                    == "subagent_result_approval"
+                ):
+                    interrupt_map[item.id] = payload
+
+                    print(
+                        prefix,
+                        "INTERRUPT:",
+                        item.id,
+                        payload["agent"],
+                        payload["work_id"]
+                    )
+
+            # 递归进入 Structural Subgraph
+            child_state = getattr(
+                task, "state", None
+            )
+
+            if hasattr(child_state, "tasks"):
+                walk(child_state, depth + 1)
+
+    walk(root_snapshot)
+
+    return interrupt_map
